@@ -75,6 +75,7 @@ header .btn.ghost{color:#fff;border-color:rgba(255,255,255,.65)}
 <meta name="apple-mobile-web-app-title" content="हिसाब-किताब">
 <link rel="apple-touch-icon" href="icon-192.png">
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
 </head>
 <body>
 <header><h1>हिसाब-किताब<small>Split Ledger</small></h1><nav><button id="n-dashboard">Dashboard</button><button id="n-groups">Groups</button></nav></header>
@@ -152,18 +153,19 @@ function groups(){
   var h='<div class="card"><h3>New group</h3><div class="row"><input id="gn" placeholder="Group name, e.g. Goa trip"><input id="gm" placeholder="Other members (names), comma separated"><button class="btn" onclick="addGroup()">Create group</button></div><div class="lbl" style="margin-top:8px">You are added as admin and as the first member. Give other people access after creating.</div></div>';
   if(!S.length)return h+'<div class="empty">Your groups will show up here.</div>';
   return h+'<div class="grid">'+S.map(function(g){var b=balances(g),o=0;Object.keys(b).forEach(function(k){if(b[k]>0.01)o+=b[k]});
-    return '<div class="card gcard" onclick="go(\'group\',\''+g.id+'\')"><h3>'+esc(g.name)+'<span class="tag">'+role(g)+'</span></h3><div class="lbl">'+g.members.length+' members · '+g.tx.length+' entries</div><div style="margin-top:8px"><b>'+inr(spent(g))+'</b> spent</div><div class="lbl">'+(o>0.01?inr(o)+' to settle':'All settled')+'</div></div>'}).join('')+'</div>'}
+    return '<div class="card gcard" onclick="go(\'group\',\''+g.id+'\')"><h3>'+esc(g.name)+'<span class="tag">'+role(g)+'</span></h3><div class="lbl">'+g.members.filter(function(m){return !rem(g,m)}).length+' members · '+g.tx.length+' entries</div><div style="margin-top:8px"><b>'+inr(spent(g))+'</b> spent</div><div class="lbl">'+(o>0.01?inr(o)+' to settle':'All settled')+'</div></div>'}).join('')+'</div>'}
 function group(){
   var g=G(gid);if(!g){go('groups');return ''}
   var b=balances(g),p=pays([g]),w=canW(g),a=isAdm(g);
   var h='<div class="sp"><div class="row" style="flex:none"><button class="btn ghost sm" onclick="go(\'groups\')">Back</button><h2>'+esc(g.name)+'</h2><span class="tag">'+role(g)+'</span></div><div class="row" style="flex:none"><button class="btn ghost sm" onclick="exportOne()">Export CSV</button>'+(a?'<button class="btn ghost sm" onclick="delGroup()">Delete group</button>':'')+'</div></div>';
-  h+='<div class="card"><h3>Members</h3>'+g.members.map(function(m){return '<span class="chip">'+esc(m)+'</span>'}).join('')+(a?'<div class="row" style="margin-top:6px"><input id="nm" placeholder="Add a member by name"><button class="btn sm" onclick="addMember()">Add member</button></div>':'')+'</div>';
-  h+='<div class="card"><h3>Who has access</h3><div class="list">'+Object.keys(g.access).map(function(id){return '<div><span data-uid="'+esc(id)+'">…</span><span>'+(a&&id!==me?'<select style="width:auto" onchange="setRole(\''+esc(id)+'\',this.value)">'+['admin','member','viewer'].map(function(r){return '<option'+(g.access[id]===r?' selected':'')+'>'+r+'</option>'}).join('')+'</select> <button class="x" aria-label="Remove access" onclick="rmAccess(\''+esc(id)+'\')">×</button>':'<span class="tag">'+g.access[id]+(id===me?' (you)':'')+'</span>')+'</span></div>'}).join('')+'</div>'
+  h+='<div class="card"><h3>Members</h3>'+g.members.map(function(m,i){return rem(g,m)?'':'<span class="chip">'+esc(m)+(a&&m!==meName(g)?' <button class="x" style="font-size:15px;padding:0 2px" aria-label="Remove member" onclick="rmMember('+i+')">×</button>':'')+'</span>'}).join('')+(a?'<div class="row" style="margin-top:6px"><input id="nm" placeholder="Add a member by name"><button class="btn sm" onclick="addMember()">Add member</button></div>':'')+'</div>';
+  if(a)h+=inviteCard(g);
+  h+='<div class="card"><h3>Who has access</h3><div class="list">'+Object.keys(g.access).map(function(id){return '<div><span>'+esc(id)+(g.link&&g.link[id]&&g.link[id]!==id?' <span class="lbl">('+esc(g.link[id])+')</span>':'')+'</span><span>'+(a&&id!==me?'<select style="width:auto" onchange="setRole(\''+esc(id)+'\',this.value)">'+['admin','member','viewer'].map(function(r){return '<option'+(g.access[id]===r?' selected':'')+'>'+r+'</option>'}).join('')+'</select> <button class="x" aria-label="Remove access" onclick="rmAccess(\''+esc(id)+'\')">×</button>':'<span class="tag">'+g.access[id]+(id===me?' (you)':'')+'</span>')+'</span></div>'}).join('')+'</div>'
    +'<div class="lbl" style="margin-top:8px">Admin: manage people and delete. Member: add expenses and settle. Viewer: read and export only.</div>'
    +(a?'<div class="row" style="margin-top:10px"><input id="ue" placeholder="Their username"><input id="un" placeholder="Name (optional)"><select id="ur" style="flex:0 0 110px"><option>member</option><option>viewer</option><option>admin</option></select><button class="btn sm" onclick="grant()">Give access</button></div>':'')+'</div>';
-  if(w){h+='<div class="card"><h3>Add expense</h3><div class="row"><input id="ed" placeholder="What was it for?"><input id="ea" type="number" min="0" step="0.01" placeholder="Amount (₹)"><select id="ep">'+g.members.map(function(m){return '<option>'+esc(m)+'</option>'}).join('')+'</select></div><div class="lbl" style="margin-top:10px">Split equally between</div><div class="chk">'+g.members.map(function(m,i){return '<label><input type="checkbox" class="sc" value="'+i+'" checked>'+esc(m)+'</label>'}).join('')+'</div><button class="btn" onclick="addExpense()">Save expense</button></div>'}
+  if(w){h+='<div class="card"><h3>Add expense</h3><div class="row"><input id="ed" placeholder="What was it for?"><input id="ea" type="number" min="0" step="0.01" placeholder="Amount (₹)"><select id="ep">'+g.members.map(function(m){return rem(g,m)?'':'<option>'+esc(m)+'</option>'}).join('')+'</select></div><div class="lbl" style="margin-top:10px">Split equally between</div><div class="chk">'+g.members.map(function(m,i){return rem(g,m)?'':'<label><input type="checkbox" class="sc" value="'+i+'" checked>'+esc(m)+'</label>'}).join('')+'</div><button class="btn" onclick="addExpense()">Save expense</button></div>'}
   h+='<div class="card"><h3>Who pays whom</h3>'+mine([g])+modeBar()+summary([g],meName(g))+'</div>';
-  h+='<div class="card"><h3>Balances</h3><div class="list">'+g.members.map(function(m){var v=Math.round(b[m]*100)/100;return '<div><span>'+esc(m)+'</span><b class="'+(v>0?'pos':v<0?'neg':'')+'">'+(v>0?'gets back '+inr(v):v<0?'owes '+inr(v):'settled')+'</b></div>'}).join('')+'</div></div>';
+  h+='<div class="card"><h3>Balances</h3><div class="list">'+g.members.map(function(m){var v=Math.round(b[m]*100)/100;if(rem(g,m))return '';return '<div><span>'+esc(m)+'</span><b class="'+(v>0?'pos':v<0?'neg':'')+'">'+(v>0?'gets back '+inr(v):v<0?'owes '+inr(v):'settled')+'</b></div>'}).join('')+'</div></div>';
   h+='<div class="card"><h3>Record a payment</h3>'+(p.length?'<div class="list">'+p.map(function(x,i){return '<div><span><b>'+esc(x.from)+'</b> pays <b>'+esc(x.to)+'</b> '+inr(x.amt)+'</span>'+(w?'<button class="btn sm" onclick="settle('+i+')">Mark paid</button>':'')+'</div>'}).join('')+'</div>':'<div class="empty">Everyone is even.</div>')+'</div>';
   h+='<div class="card"><h3>History</h3>'+(g.tx.length?'<div class="list">'+g.tx.slice().reverse().map(function(t){return '<div><span><b>'+esc(t.type==='settle'?t.by+' paid '+t.to:t.desc)+'</b><br><span class="lbl">'+new Date(t.date).toLocaleDateString('en-IN')+(t.type==='settle'?' · settlement':' · paid by '+esc(t.by)+' · split '+t.split.length+' ways')+'</span></span><span><b>'+inr(t.amt)+'</b>'+(w?' <button class="x" aria-label="Delete entry" onclick="delTx(\''+t.id+'\')">×</button>':'')+'</span></div>'}).join('')+'</div>':'<div class="empty">No entries yet.</div>')+'</div>';
   return h}
@@ -172,7 +174,7 @@ function addGroup(){
   if(!n||!m.length){alert('Enter a group name and at least one other member.');return}
   var o={};o[me]='admin';var lk={};lk[me]=myName;var id=uid();
   api('save',{group:{id:id,name:n,members:[myName].concat(m),tx:[],access:o,link:lk,v:0}}).then(refresh).then(function(){go('group',id)}).catch(fail)}
-function addMember(){var n=$('#nm').value.trim();if(!n)return;mutate(gid,function(g){if(g.members.indexOf(n)<0)g.members.push(n)})}
+function addMember(){var n=$('#nm').value.trim();if(!n)return;mutate(gid,function(g){if(g.removed&&g.removed.indexOf(n)>=0)g.removed=g.removed.filter(function(x){return x!==n});if(g.members.indexOf(n)<0)g.members.push(n)})}
 function addExpense(){
   var g=G(gid),d=$('#ed').value.trim(),a=parseFloat($('#ea').value),by=$('#ep').value;
   var sp=[].slice.call(document.querySelectorAll('.sc')).filter(function(c){return c.checked}).map(function(c){return g.members[+c.value]});
@@ -186,7 +188,34 @@ function grant(){var e=$('#ue').value.trim().toLowerCase(),n=$('#un').value.trim
   mutate(gid,function(g){g.access[e]=r;g.link=g.link||{};g.link[e]=n;if(g.members.indexOf(n)<0)g.members.push(n)})}
 function setRole(id,r){mutate(gid,function(g){g.access[id]=r})}
 function rmAccess(id){if(confirm('Remove this person from the group?'))mutate(gid,function(g){delete g.access[id]})}
-function showLogin(){$('#app').innerHTML='<div class="card" style="max-width:380px;margin:24px auto"><h3>Sign in</h3>'+(errMsg?'<div class="neg" style="margin-bottom:10px">'+esc(errMsg)+'</div>':'')+'<input id="lu" placeholder="Username" autocomplete="username" style="margin-bottom:10px"><div class="password-wrap"><input id="lp" type="password" placeholder="Password" autocomplete="current-password"><button type="button" class="password-toggle" id="toggle-lp" onclick="toggleLoginPassword()" aria-label="Show password" aria-pressed="false">Show</button></div><input id="ln" placeholder="Your name (only for a new account)" style="margin-bottom:10px"><input id="le" type="email" placeholder="Email (required for a new account)" style="margin-bottom:12px"><div class="row"><button class="btn" onclick="auth(\'login\')">Sign in</button><button class="btn ghost" onclick="auth(\'register\')">Create account</button></div><div style="margin-top:12px"><button class="x" style="font-size:14px;text-decoration:underline" onclick="showForgot()">Forgot password?</button></div></div>'}
+function rem(g,m){return (g.removed||[]).indexOf(m)>=0}
+function inviteLink(g){return location.origin+location.pathname+'?join='+g.invite}
+function inviteCard(g){
+  if(!g.invite)return '<div class="card"><h3>Invite people</h3><div class="lbl" style="margin-bottom:10px">Create a link or QR code. Anyone who opens it and signs in joins this group.</div><div class="row"><select id="ir"><option value="member">Join as member (can add expenses)</option><option value="viewer">Join as viewer (read only)</option></select><button class="btn" onclick="invite(\'create\')">Create invite link</button></div></div>';
+  return '<div class="card"><h3>Invite people</h3><div class="lbl" style="margin-bottom:8px">Anyone with this link can join as '+esc(g.inviteRole||'member')+' after signing in. Share it only with your group.</div><input readonly id="il" value="'+esc(inviteLink(g))+'" onclick="this.select()"><div class="row" style="margin-top:10px"><button class="btn sm" onclick="copyInvite()">Copy link</button><button class="btn sm ghost" onclick="waInvite()">WhatsApp</button><button class="btn sm ghost" onclick="shareInvite()">Share</button></div><div id="qr" style="margin:14px 0 4px;background:#fff;padding:10px;display:inline-block;border-radius:8px"></div><div class="row" style="margin-top:8px"><button class="btn sm ghost" onclick="invite(\'reset\')">Make a new link</button><button class="btn sm ghost" onclick="invite(\'off\')">Turn off link</button></div></div>'}
+var qrTry=0;
+function drawQr(){var el=$('#qr'),g=view==='group'&&G(gid);if(!el||!g||!g.invite)return;
+  if(!window.QRCode){if(qrTry++<10)setTimeout(drawQr,500);else el.textContent='QR code could not load. Use the link above.';return}
+  el.innerHTML='';new QRCode(el,{text:inviteLink(g),width:180,height:180,colorDark:'#6d1424',colorLight:'#ffffff'})}
+function invite(mode){
+  if(mode==='reset'&&!confirm('Make a new link? The old link and QR code stop working.'))return;
+  if(mode==='off'&&!confirm('Turn off the invite link? The old link and QR code stop working.'))return;
+  api('invite',{id:gid,mode:mode,role:($('#ir')||{}).value}).then(refresh).catch(fail)}
+function copyInvite(){var g=G(gid),l=inviteLink(g);
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(l).then(function(){alert('Link copied.')},function(){$('#il').select()});
+  else{$('#il').select();try{document.execCommand('copy');alert('Link copied.')}catch(e){}}}
+function waInvite(){var g=G(gid);window.open('https://wa.me/?text='+encodeURIComponent('Join "'+g.name+'" on Hisaab-Kitaab to split expenses: '+inviteLink(g)),'_blank')}
+function shareInvite(){var g=G(gid);if(navigator.share)navigator.share({title:g.name,text:'Join "'+g.name+'" on Hisaab-Kitaab',url:inviteLink(g)}).catch(function(){});else copyInvite()}
+function rmMember(i){var g=G(gid),n=g.members[i],bal=balances(g)[n]||0;
+  if(Math.abs(bal)>0.01){alert(n+' still has an unsettled balance of '+inr(bal)+'. Settle up first, then remove them.');return}
+  if(!confirm('Remove '+n+' from this group? They lose access and are hidden from new expenses. Past entries stay.'))return;
+  mutate(gid,function(g){var used=g.tx.some(function(t){return t.by===n||t.to===n||(t.split||[]).indexOf(n)>=0});
+    if(used){g.removed=g.removed||[];if(g.removed.indexOf(n)<0)g.removed.push(n)}else g.members=g.members.filter(function(m){return m!==n});
+    g.link=g.link||{};Object.keys(g.link).forEach(function(u){if(g.link[u]===n&&u!==me){delete g.access[u];delete g.link[u]}})})}
+(function(){try{var c=new URLSearchParams(location.search).get('join');if(c&&/^[a-f0-9]{24}$/.test(c)){localStorage.setItem('sl-join',c);history.replaceState(null,'',location.pathname+location.hash)}}catch(e){}})();
+function pj(){try{return localStorage.getItem('sl-join')}catch(e){return null}}
+function doJoin(){var c=pj();if(!c)return;api('join',{code:c}).then(function(r){try{localStorage.removeItem('sl-join')}catch(e){}return refresh().then(function(){go('group',r.id)})}).catch(function(e){try{localStorage.removeItem('sl-join')}catch(x){}fail(e)})}
+function showLogin(){$('#app').innerHTML='<div class="card" style="max-width:380px;margin:24px auto"><h3>Sign in</h3>'+(pj()?'<div class="lbl" style="margin-bottom:10px">You were invited to a group. Sign in or create an account to join it.</div>':'')+(errMsg?'<div class="neg" style="margin-bottom:10px">'+esc(errMsg)+'</div>':'')+'<input id="lu" placeholder="Username" autocomplete="username" style="margin-bottom:10px"><div class="password-wrap"><input id="lp" type="password" placeholder="Password" autocomplete="current-password"><button type="button" class="password-toggle" id="toggle-lp" onclick="toggleLoginPassword()" aria-label="Show password" aria-pressed="false">Show</button></div><input id="ln" placeholder="Your name (only for a new account)" style="margin-bottom:10px"><input id="le" type="email" placeholder="Email (required for a new account)" style="margin-bottom:12px"><div class="row"><button class="btn" onclick="auth(\'login\')">Sign in</button><button class="btn ghost" onclick="auth(\'register\')">Create account</button></div><div style="margin-top:12px"><button class="x" style="font-size:14px;text-decoration:underline" onclick="showForgot()">Forgot password?</button></div></div>'}
 function toggleLoginPassword(){var p=$('#lp'),b=$('#toggle-lp');if(!p||!b)return;var show=p.type==='password';p.type=show?'text':'password';b.textContent=show?'Hide':'Show';b.setAttribute('aria-label',show?'Hide password':'Show password');b.setAttribute('aria-pressed',show?'true':'false')}
 function auth(kind){var u=$('#lu').value.trim().toLowerCase(),p=$('#lp').value;
   if(!/^[a-z0-9_]{3,20}$/.test(u)){errMsg='Username must be 3-20 letters, numbers or underscores.';showLogin();return}
@@ -202,14 +231,14 @@ function doReset(){var e=$('#fu').value.trim().toLowerCase();
 function emailCard(){return '<div class="card"><h3>Add a recovery email</h3><div class="lbl" style="margin-bottom:8px">So you can reset your password if you forget it.</div><div class="row"><input id="se" type="email" placeholder="you@example.com"><button class="btn" onclick="saveEmail()">Save email</button></div></div>'}
 function saveEmail(){var e=$('#se').value.trim();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){alert('Enter a valid email.');return}
   api('setemail',{email:e}).then(function(){hasEmail=true;render()}).catch(fail)}
-function start(t,u,n){tok=t;me=u;myName=n;try{localStorage.setItem('sl-sess',JSON.stringify({t:t,u:u,n:n}))}catch(e){}$('#so').hidden=false;render();refresh()}
+function start(t,u,n){tok=t;me=u;myName=n;try{localStorage.setItem('sl-sess',JSON.stringify({t:t,u:u,n:n}))}catch(e){}$('#so').hidden=false;render();refresh().then(doJoin)}
 function signOut(msg){tok=null;me=null;ready=false;S=[];try{localStorage.removeItem('sl-sess')}catch(e){}errMsg=typeof msg==='string'?msg:'';$('#so').hidden=true;showLogin()}
 function init(){var s=null;try{s=JSON.parse(localStorage.getItem('sl-sess'))}catch(e){}if(s&&s.t)start(s.t,s.u,s.n);else showLogin()}
 function render(){
   $('#n-dashboard').className=view==='dashboard'?'on':'';$('#n-groups').className=view!=='dashboard'?'on':'';
   if(!me){showLogin();return}
   if(!ready){$('#app').innerHTML='<div class="empty">'+(errMsg?esc(errMsg):'Loading your groups…')+'</div>';return}
-  $('#app').innerHTML=view==='dashboard'?dashboard():view==='groups'?groups():group()}
+  $('#app').innerHTML=view==='dashboard'?dashboard():view==='groups'?groups():group();drawQr()}
 document.querySelector('header').insertAdjacentHTML('beforeend','<button class="btn ghost sm" id="so" hidden onclick="signOut()">Sign out</button>');
 if(location.hash==='#groups')view='groups';
 render();init();
