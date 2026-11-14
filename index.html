@@ -64,6 +64,7 @@ header .btn{color:#ffe7b8;border-color:rgba(255,231,184,.45)}
 input,select{background:var(--bg)}
 .chip,.tag{border:1px solid var(--line)}
 details summary{list-style:revert}
+#toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--hd);color:#ffe7b8;padding:7px 16px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .3s;z-index:20}#toast.on{opacity:1}
 header .btn.ghost{color:#fff;border-color:rgba(255,255,255,.65)}
 </style>
 
@@ -151,8 +152,15 @@ function dashboard(){
   h+='<div class="card"><h3>Top payers</h3>'+(top.length?'<div class="list">'+top.map(function(k){return '<div><span>'+esc(k)+'</span><b>'+inr(payers[k])+'</b></div>'}).join('')+'</div>':'<div class="empty">No expenses yet.</div>')+'</div>';
   h+='<div class="card"><h3>Recent activity</h3>'+(all.length?'<div class="list">'+all.slice(0,8).map(function(x){var t=x.t;return '<div><span><b>'+esc(t.type==='settle'?t.by+' paid '+t.to:t.desc)+'</b><br><span class="lbl">'+esc(x.g.name)+' · '+new Date(t.date).toLocaleDateString('en-IN')+(t.type==='settle'?'':' · paid by '+esc(t.by))+'</span></span><b class="'+(t.type==='settle'?'pos':'')+'">'+inr(t.amt)+'</b></div>'}).join('')+'</div>':'<div class="empty">Nothing recorded yet.</div>')+'</div>';
   return h}
+var draft={n:'',m:'',t:[]},expDraft={},formGid=null;
+try{var sd=JSON.parse(localStorage.getItem('sl-drafts')||'null');if(sd){if(sd.g)draft=sd.g;if(sd.e)expDraft=sd.e}}catch(e){}
+function newGroupCard(){return '<div class="card"><h3>New group</h3><input id="gn" placeholder="Group name, e.g. Goa trip" value="'+esc(draft.n)+'" oninput="draft.n=this.value" style="margin-bottom:10px"><input id="gm" placeholder="Members who pay for themselves (names, comma separated)" value="'+esc(draft.m)+'" oninput="draft.m=this.value"><div class="lbl" style="margin:14px 0 8px"><b>Teams (optional)</b>: a leader pays for the people under them. If you are a leader, type your own name.</div>'
+  +draft.t.map(function(t,i){return '<div class="row" style="margin-bottom:8px"><input placeholder="Leader name" value="'+esc(t.l)+'" oninput="draft.t['+i+'].l=this.value"><input placeholder="People under this leader, comma separated" value="'+esc(t.m)+'" oninput="draft.t['+i+'].m=this.value"><button class="x" aria-label="Remove team" onclick="rmTeam('+i+')">×</button></div>'}).join('')
+  +'<button class="btn ghost sm" onclick="addTeam()">+ Add a team</button><div class="lbl" style="margin:12px 0">You are added as admin and as a member. Give other people access later, or share an invite link.</div><button class="btn" onclick="addGroup()">Create group</button></div>'}
+function addTeam(){draft.t.push({l:'',m:''});render()}
+function rmTeam(i){draft.t.splice(i,1);render()}
 function groups(){
-  var h='<div class="card"><h3>New group</h3><div class="row"><input id="gn" placeholder="Group name, e.g. Goa trip"><input id="gm" placeholder="Other members (names), comma separated"><button class="btn" onclick="addGroup()">Create group</button></div><div class="lbl" style="margin-top:8px">You are added as admin and as the first member. Give other people access after creating.</div></div>';
+  var h=newGroupCard();
   if(!S.length)return h+'<div class="empty">Your groups will show up here.</div>';
   return h+'<div class="grid">'+S.map(function(g){var b=balances(g),o=0;Object.keys(b).forEach(function(k){if(b[k]>0.01)o+=b[k]});
     return '<div class="card gcard" onclick="go(\'group\',\''+g.id+'\')"><h3>'+esc(g.name)+'<span class="tag">'+role(g)+'</span></h3><div class="lbl">'+g.members.filter(function(m){return !rem(g,m)}).length+' members · '+g.tx.length+' entries</div><div style="margin-top:8px"><b>'+inr(spent(g))+'</b> spent</div><div class="lbl">'+(o>0.01?inr(o)+' to settle':'All settled')+'</div></div>'}).join('')+'</div>'}
@@ -173,15 +181,25 @@ function group(){
   h+='<div class="card"><h3>History</h3>'+(g.tx.length?'<div class="list">'+g.tx.slice().reverse().map(function(t){return '<div><span><b>'+esc(t.type==='settle'?t.by+' paid '+t.to:t.desc)+'</b><br><span class="lbl">'+new Date(t.date).toLocaleDateString('en-IN')+(t.type==='settle'?' · settlement':' · paid by '+esc(t.by)+' · split '+t.split.length+' ways')+'</span></span><span><b>'+inr(t.amt)+'</b>'+(w?' <button class="x" aria-label="Delete entry" onclick="delTx(\''+t.id+'\')">×</button>':'')+'</span></div>'}).join('')+'</div>':'<div class="empty">No entries yet.</div>')+'</div>';
   return h}
 function addGroup(){
-  var n=$('#gn').value.trim(),m=$('#gm').value.split(',').map(function(s){return s.trim()}).filter(function(s,i,a){return s&&a.indexOf(s)===i&&s!==myName});
-  if(!n||!m.length){alert('Enter a group name and at least one other member.');return}
+  var n=draft.n.trim();if(!n){alert('Enter a group name.');return}
+  function names(s){return String(s).split(',').map(function(x){return x.trim()}).filter(Boolean)}
+  var members=[myName],leaders={},assigned={},err='';
+  function add(x){var k=members.map(function(y){return y.toLowerCase()}).indexOf(x.toLowerCase());if(k>=0)return members[k];members.push(x);return x}
+  names(draft.m).forEach(add);
+  draft.t.forEach(function(t){var ln=t.l.trim(),ds=names(t.m);if(!ln&&!ds.length)return;
+    if(!ln||!ds.length){err='Each team needs a leader name and at least one person under them.';return}
+    var L=add(ln);ds.forEach(function(d){var D=add(d);if(D===L)return;if(assigned[D]){err=D+' is in two teams. Put each person under only one leader.';return}assigned[D]=1;leaders[D]=L})});
+  if(!err&&Object.keys(leaders).some(function(d){return leaders[leaders[d]]}))err='A leader cannot also be under another leader.';
+  if(err){alert(err);return}
+  if(members.length<2){alert('Add at least one more member.');return}
   var o={};o[me]='admin';var lk={};lk[me]=myName;var id=uid();
-  api('save',{group:{id:id,name:n,members:[myName].concat(m),tx:[],access:o,link:lk,v:0}}).then(refresh).then(function(){go('group',id)}).catch(fail)}
+  api('save',{group:{id:id,name:n,members:members,leaders:leaders,tx:[],access:o,link:lk,v:0}}).then(function(){draft={n:'',m:'',t:[]};return refresh()}).then(function(){go('group',id)}).catch(fail)}
 function addMember(){var n=$('#nm').value.trim();if(!n)return;mutate(gid,function(g){if(g.removed&&g.removed.indexOf(n)>=0)g.removed=g.removed.filter(function(x){return x!==n});if(g.members.indexOf(n)<0)g.members.push(n)})}
 function addExpense(){
   var g=G(gid),d=$('#ed').value.trim(),a=parseFloat($('#ea').value),by=$('#ep').value;
   var sp=[].slice.call(document.querySelectorAll('.sc')).filter(function(c){return c.checked}).map(function(c){return g.members[+c.value]});
   if(!d||!(a>0)||!sp.length){alert('Add a description, an amount above 0, and at least one person to split with.');return}
+  delete expDraft[gid];$('#ed').value='';$('#ea').value='';saveDrafts(true);
   mutate(gid,function(g){g.tx.push({id:uid(),type:'expense',desc:d,amt:a,by:by,split:sp,date:Date.now(),addedBy:me})})}
 function settle(i){var x=pays([G(gid)])[i];if(!x)return;mutate(gid,function(g){g.tx.push({id:uid(),type:'settle',by:x.from,to:x.to,amt:x.amt,date:Date.now(),addedBy:me})})}
 function delTx(id){mutate(gid,function(g){g.tx=g.tx.filter(function(t){return t.id!==id})})}
@@ -248,14 +266,25 @@ function emailCard(){return '<div class="card"><h3>Add a recovery email</h3><div
 function saveEmail(){var e=$('#se').value.trim();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){alert('Enter a valid email.');return}
   api('setemail',{email:e}).then(function(){hasEmail=true;render()}).catch(fail)}
 function start(t,u,n){tok=t;me=u;myName=n;try{localStorage.setItem('sl-sess',JSON.stringify({t:t,u:u,n:n}))}catch(e){}$('#so').hidden=false;render();refresh().then(doJoin)}
-function signOut(msg){tok=null;me=null;ready=false;S=[];try{localStorage.removeItem('sl-sess')}catch(e){}errMsg=typeof msg==='string'?msg:'';$('#so').hidden=true;showLogin()}
+function signOut(msg){tok=null;me=null;ready=false;S=[];try{localStorage.removeItem('sl-sess');localStorage.removeItem('sl-drafts')}catch(e){}draft={n:'',m:'',t:[]};expDraft={};errMsg=typeof msg==='string'?msg:'';$('#so').hidden=true;showLogin()}
 function init(){var s=null;try{s=JSON.parse(localStorage.getItem('sl-sess'))}catch(e){}if(s&&s.t)start(s.t,s.u,s.n);else showLogin()}
-function render(){
+function render(){captureExpense();
   $('#n-dashboard').className=view==='dashboard'?'on':'';$('#n-groups').className=view!=='dashboard'?'on':'';
   if(!me){showLogin();return}
   if(!ready){$('#app').innerHTML='<div class="empty">'+(errMsg?esc(errMsg):'Loading your groups…')+'</div>';return}
-  $('#app').innerHTML=view==='dashboard'?dashboard():view==='groups'?groups():group();drawQr()}
+  $('#app').innerHTML=view==='dashboard'?dashboard():view==='groups'?groups():group();drawQr();restoreExpense()}
 document.querySelector('header').insertAdjacentHTML('beforeend','<button class="btn ghost sm" id="so" hidden onclick="signOut()">Sign out</button>');
+function captureExpense(){if(!formGid||!$('#ed'))return;var off=[];[].forEach.call(document.querySelectorAll('.sc'),function(c){if(!c.checked)off.push(+c.value)});
+  var d=$('#ed').value,a=$('#ea').value;if(d||a)expDraft[formGid]={d:d,a:a,by:$('#ep').value,off:off};else delete expDraft[formGid]}
+function restoreExpense(){formGid=null;if(view!=='group'||!$('#ed'))return;formGid=gid;var x=expDraft[gid];if(!x)return;
+  if(!$('#ed').value&&!$('#ea').value){$('#ed').value=x.d||'';$('#ea').value=x.a||'';if(x.by){var s=$('#ep');for(var i=0;i<s.options.length;i++)if(s.options[i].text===x.by)s.selectedIndex=i}}
+  [].forEach.call(document.querySelectorAll('.sc'),function(c){c.checked=(x.off||[]).indexOf(+c.value)<0})}
+function hasDraft(){return !!(draft.n||draft.m||draft.t.some(function(t){return t.l||t.m})||Object.keys(expDraft).length)}
+function toast(t){var e=$('#toast');if(!e){document.body.insertAdjacentHTML('beforeend','<div id="toast"></div>');e=$('#toast')}e.textContent=t;e.className='on';clearTimeout(toast.t);toast.t=setTimeout(function(){e.className=''},2000)}
+function saveDrafts(quiet){captureExpense();try{if(hasDraft())localStorage.setItem('sl-drafts',JSON.stringify({g:draft,e:expDraft}));else localStorage.removeItem('sl-drafts')}catch(e){return}if(!quiet&&hasDraft()&&me)toast('Draft saved')}
+setInterval(function(){saveDrafts(false)},30000);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')saveDrafts(true)});
+window.addEventListener('pagehide',function(){saveDrafts(true)});
 if(location.hash==='#groups')view='groups';
 render();init();
 setInterval(function(){if(me&&document.visibilityState==='visible')refresh()},20000);
