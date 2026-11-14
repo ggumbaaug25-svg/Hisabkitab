@@ -212,13 +212,19 @@ function rmAccess(id){if(confirm('Remove this person from the group?'))mutate(gi
 function root(g,m){var l=g.leaders&&g.leaders[m];return l&&g.members.indexOf(l)>=0?l:m}
 function teamBal(g){var b=balances(g),t={};Object.keys(b).forEach(function(k){var r=root(g,k);t[r]=(t[r]||0)+b[k]});return t}
 function depNote(g,m){var d=g.members.filter(function(x){return g.leaders&&g.leaders[x]===m});return d.length?' <span class="lbl">(pays for '+d.map(esc).join(', ')+')</span>':''}
+var leadOpen=false;
 function leaderCard(g,a){var L=g.leaders||{},act=g.members.map(function(m,i){return {m:m,i:i}}).filter(function(x){return !rem(g,x.m)});
   if(act.length<2)return '';
-  var rows=act.map(function(x){var isLead=act.some(function(y){return L[y.m]===x.m});
-    if(!a)return '<div><span>'+esc(x.m)+'</span><span class="lbl">'+(L[x.m]?'pays through '+esc(L[x.m]):isLead?'group leader':'pays own share')+'</span></div>';
-    if(isLead)return '<div><span>'+esc(x.m)+'</span><span class="tag">group leader</span></div>';
-    return '<div><span>'+esc(x.m)+'</span><select style="width:auto;max-width:55%" onchange="setLeader('+x.i+',this.value)"><option value="">Pays own share</option>'+act.filter(function(y){return y.m!==x.m&&!L[y.m]}).map(function(y){return '<option value="'+y.i+'"'+(L[x.m]===y.m?' selected':'')+'>Under '+esc(y.m)+'</option>'}).join('')+'</select></div>'}).join('');
-  return '<div class="card"><h3>Group leaders</h3><div class="lbl" style="margin-bottom:8px">Put a member under a leader and the leader pays or receives the money for them. Expenses are still split per person.</div><div class="list">'+rows+'</div></div>'}
+  function isLead(m){return act.some(function(y){return L[y.m]===m})}
+  var leads=act.filter(function(x){return isLead(x.m)}),solo=act.filter(function(x){return !isLead(x.m)&&!L[x.m]});
+  var teams=leads.map(function(x){var deps=act.filter(function(y){return L[y.m]===x.m});
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--line)"><b>'+esc(x.m)+'</b> <span class="lbl">pays for</span><div>'+deps.map(function(y){return '<span class="chip">'+esc(y.m)+(a?' <button class="x" style="font-size:15px;padding:0 2px" aria-label="Take out of team" onclick="setLeader('+y.i+',\'\')">×</button>':'')+'</span>'}).join('')+'</div></div>'}).join('');
+  var soloRow=solo.length?'<div style="padding:7px 0"><span class="lbl">Pay their own share:</span><div>'+solo.map(function(y){return '<span class="chip">'+esc(y.m)+'</span>'}).join('')+'</div></div>':'';
+  var form='';
+  if(a){var ms=act.filter(function(x){return !isLead(x.m)}),ls=act.filter(function(x){return !L[x.m]});
+    form='<div class="row" style="margin-top:8px"><select id="lm" style="padding:6px 8px">'+ms.map(function(x){return '<option value="'+x.i+'">'+esc(x.m)+'</option>'}).join('')+'</select><span class="lbl" style="flex:0 0 auto">goes under</span><select id="ll" style="padding:6px 8px">'+ls.map(function(x){return '<option value="'+x.i+'">'+esc(x.m)+'</option>'}).join('')+'</select><button class="btn sm" onclick="assignLeader()">Assign</button></div>'}
+  return '<div class="card"><details'+(leadOpen?' open':'')+' ontoggle="leadOpen=this.open"><summary style="cursor:pointer"><b>Group leaders</b> <span class="lbl">'+leads.length+' team'+(leads.length===1?'':'s')+' · tap to open</span></summary><div class="lbl" style="margin:8px 0 4px">A leader pays or receives the money for the people under them. Expenses are still split per person.</div>'+teams+soloRow+form+'</details></div>'}
+function assignLeader(){var m=$('#lm'),l=$('#ll');if(!m||!l||!m.value||!l.value)return;if(m.value===l.value){alert('Pick two different people.');return}setLeader(+m.value,l.value)}
 function setLeader(i,v){mutate(gid,function(g){g.leaders=g.leaders||{};var n=g.members[i];if(v==='')delete g.leaders[n];else g.leaders[n]=g.members[+v]})}
 function rem(g,m){return (g.removed||[]).indexOf(m)>=0}
 function inviteLink(g){return location.origin+location.pathname+'?join='+g.invite}
